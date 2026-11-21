@@ -57,8 +57,16 @@ TG_BOT_TOKEN = 你的 bot token
 
 Variables：
 ```
-TG_GROUP_ID = @你的群用户名
+TG_GROUP_ID   = @你的群用户名
+TG_CHANNEL_ID = @你的频道用户名
+TG_ADMIN_IDS  = 123456789,987654321
 ```
+
+**`TG_ADMIN_IDS` 是管理员豁免名单**（Telegram 用户 ID，逗号分隔）。
+
+**不填的话，你自己发广告测试也会被删。** 查自己的 ID：把任意消息转发给 @userinfobot。
+
+**`TG_CHANNEL_ID` 可以不填**——填了会自动放行你自己频道的链接。
 
 **Settings → Actions → General → Workflow permissions**
 
@@ -86,13 +94,17 @@ TG_GROUP_ID = @你的群用户名
 
 ### 豁免管理员
 
-```json
-"admin_ids": [123456789, 987654321]
+**用 `TG_ADMIN_IDS` 环境变量**，不要写进规则文件：
+
+```
+TG_ADMIN_IDS = 123456789,987654321
 ```
 
-填 Telegram 用户 ID。**不填的话，你自己发广告测试也会被删。**
+规则文件里留空：
 
-查自己的 ID：把任意消息转发给 @userinfobot。
+```json
+"admin_ids": []
+```
 
 ---
 
