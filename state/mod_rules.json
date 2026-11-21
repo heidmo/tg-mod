@@ -48,5 +48,6 @@
   "admin_ids": [],
   "exempt_newbie_days": 3,
   "allow_links": [],
-  "join_messages": "bots"
+  "join_messages": "bots",
+  "warn_ttl": 3600
 }

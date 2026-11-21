@@ -275,7 +275,7 @@ def pick_step(rec, level, rules, is_newbie=False):
     return steps[max(0, idx)], n
 
 
-def apply_actions(cfg, rules, chat_id, msg, actions, uname, cat, level, dry):
+def apply_actions(cfg, rules, chat_id, msg, actions, uname, cat, level, dry, st=None):
     letters = {"A": "零容忍", "B": "严重", "C": "一般", "D": "轻微"}
     log_str = "「%s」%s级(%s)" % (cat, level, letters.get(level, ""))
     # 顺序很重要：先警告（回复原消息），再删消息，否则回复目标就没了
@@ -323,13 +323,22 @@ def apply_actions(cfg, rules, chat_id, msg, actions, uname, cat, level, dry):
                 }.get(cat, "请注意群规")
                 icon = "⚠️" if level == "B" else "💡"
                 head = "%s %s %s" % (icon, mention, hint)
-                api(cfg, "sendMessage", {
+                res = api(cfg, "sendMessage", {
                     "chat_id": chat_id,
                     "text": head + "\n消息已删除。" + nxt +
                             "\n\n群规与判罚见置顶。",
                     "parse_mode": "HTML",
                     "reply_to_message_id": msg["message_id"],
                     "allow_sending_without_reply": "true"})
+                # 登记：警告 N 秒后自动删除
+                mid_w = (res.get("result") or {}).get("message_id")
+                ttl = int(rules.get("warn_ttl", 3600))
+                if mid_w and st is not None and ttl > 0:
+                    st.setdefault("pending_deletes", []).append({
+                        "chat_id": chat_id,
+                        "message_id": mid_w,
+                        "at": int(time.time()) + ttl})
+                    log("    警告将在 %d 分钟后自动删除" % (ttl // 60))
             except Exception as e:
                 log("    警告发送失败：%s" % e)
         elif act.startswith("mute"):
@@ -444,8 +453,32 @@ def handle(cfg, rules, st, msg, dry=True):
         rec["counts"][level] -= 1
         return True
 
-    apply_actions(cfg, rules, chat["id"], msg, step, uname, cat, level, dry)
+    apply_actions(cfg, rules, chat["id"], msg, step, uname, cat, level, dry, st)
     return True
+
+
+def purge_expired(cfg, st, dry=False):
+    """删除到期的警告消息。"""
+    if dry:            # 试运行不改状态，否则待删记录会丢
+        return
+    items = st.get("pending_deletes") or []
+    if not items:
+        return
+    now = time.time()
+    keep = []
+    for it in items:
+        if it.get("at", 0) <= now:
+            try:
+                api(cfg, "deleteMessage", {
+                    "chat_id": it["chat_id"],
+                    "message_id": it["message_id"]})
+                log("已删除过期警告 message_id=%s" % it["message_id"])
+            except Exception as e:
+                log("警告删除失败 message_id=%s：%s"
+                    % (it.get("message_id"), str(e)[:80]))
+        else:
+            keep.append(it)
+    st["pending_deletes"] = keep
 
 
 def loop(cfg, rules, st, dry=False, once=False, deadline=None):
@@ -456,6 +489,7 @@ def loop(cfg, rules, st, dry=False, once=False, deadline=None):
     log("开始%s（offset=%d，%s）"
         % ("处理一次" if once else "监听", last_id, "试运行" if dry else "实际执行"))
     while True:
+        purge_expired(cfg, st, dry=dry)
         if deadline and time.time() > deadline:
             save_state(st)
             log("运行时长到期，状态已保存，退出")
