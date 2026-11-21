@@ -29,6 +29,7 @@
     "带单话术": "C",
     "刷屏": "D"
   },
-  "admin_ids": [9229329175],
-  "exempt_newbie_days": 3
+  "admin_ids": [],
+  "exempt_newbie_days": 3,
+  "allow_links": []
 }

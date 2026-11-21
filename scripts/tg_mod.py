@@ -3,7 +3,6 @@
 """tg_mod.py — 群管理 bot（按判罚尺度执法）
 
 判罚规则来自 state/mod_rules.json，改规则不用改代码。
-尺度文档：docs/见山/06-判罚尺度.md
 
 用法：
   python scripts/tg_mod.py test     试运行，只看会怎么判
@@ -60,7 +59,27 @@ PATTERNS = [
     ("刷屏", re.compile(r"(.{1,3})\1{5,}")),   # 同一短语连续重复 6 次以上
 ]
 
-ALLOW = re.compile(r"(t\.me/JS_view|t\.me/JS_men|telegram\.me/JS_view)", re.I)
+def build_allow(rules, cfg=None):
+    """允许的链接白名单。
+
+    来源两处：
+      1. rules["allow_links"] —— 手工补充
+      2. 自动推导：从 TG_GROUP_ID / TG_CHANNEL_ID 生成自己的链接
+    这样不用把真实群名写进公开的规则文件。
+    """
+    pats = list(rules.get("allow_links") or [])
+    for key in ("group_id", "channel_id"):
+        v = (cfg or {}).get(key) or ""
+        if v.startswith("@"):
+            u = v[1:].lower()
+            pats += ["t.me/%s" % u, "telegram.me/%s" % u]
+    pats = [p for p in pats if p]
+    if not pats:
+        return None
+    return re.compile("(" + "|".join(re.escape(p) for p in pats) + ")", re.I)
+
+
+ALLOW = None   # 运行时由 classify() 注入
 
 DEFAULT_RULES = {
     "record_days": 30,
@@ -108,6 +127,16 @@ def load_cfg():
 def load_rules():
     r = dict(DEFAULT_RULES)
     r.update(load_json(RULES_FILE, {}))
+    # 环境变量可覆盖豁免名单（避免把真实用户 ID 写进公开的规则文件）
+    env_admins = os.environ.get("TG_ADMIN_IDS", "")
+    if env_admins.strip():
+        ids = []
+        for x in env_admins.split(","):
+            x = x.strip()
+            if x.isdigit():
+                ids.append(int(x))
+        if ids:
+            r["admin_ids"] = ids
     return r
 
 
@@ -150,11 +179,12 @@ def save_state(st):
 
 
 # ---------- 判定 ----------
-def classify(text, rules):
+def classify(text, rules, cfg=None):
     """返回 (类别名, 级别字母) 或 (None, None)。"""
     if not text:
         return None, None
-    if ALLOW.search(text):
+    allow = build_allow(rules, cfg)
+    if allow and allow.search(text):
         return None, None
     for name, rx in PATTERNS:
         if rx.search(text):
@@ -250,7 +280,7 @@ def handle(cfg, rules, st, msg, dry=True):
     if not uid or uid in rules.get("admin_ids", []):
         return False
 
-    cat, level = classify(text, rules)
+    cat, level = classify(text, rules, cfg)
     if not cat:
         return False
 
@@ -386,12 +416,12 @@ def cmd_self(args):
         "哈哈哈哈哈哈哈哈哈哈哈",
         "我觉得 ETH 要涨，因为周线站上了 EMA60",
         "不同意见：我认为还要跌，理由是量能不足",
-        "策略看 t.me/JS_view",
+        "看看这个 t.me/example_channel",
     ]
     tag = {"A": "🔴 踢", "B": "🟠 严重", "C": "🟡 一般", "D": "⚪ 轻微"}
     print("判罚尺度自测（%d 条）\n" % len(tests))
     for t in tests:
-        cat, lvl = classify(t, rules)
+        cat, lvl = classify(t, rules, {"group_id": "@example", "channel_id": "@example"})
         if not cat:
             print("✅ 放行        %s" % t[:36])
             continue
