@@ -177,17 +177,29 @@ def git_sync(force=False, every=600):
         return
     _LAST_SYNC[0] = now
     import subprocess
+
+    def run(args, timeout=60):
+        return subprocess.run(args, cwd=str(ROOT), capture_output=True,
+                              text=True, timeout=timeout)
+
     try:
-        subprocess.run(["git", "add", "state/tg_mod_state.json"],
-                       cwd=str(ROOT), capture_output=True, timeout=30)
-        r = subprocess.run(["git", "commit", "-m", "chore: 更新违规记录 [skip ci]"],
-                           cwd=str(ROOT), capture_output=True, timeout=30)
-        if r.returncode == 0:
-            subprocess.run(["git", "push"], cwd=str(ROOT),
-                           capture_output=True, timeout=60)
+        # runner 里没有全局 git 身份，必须先配好，否则 commit 会失败
+        run(["git", "config", "user.name", "github-actions[bot]"], 20)
+        run(["git", "config", "user.email",
+             "github-actions[bot]@users.noreply.github.com"], 20)
+        run(["git", "add", "state/tg_mod_state.json"], 30)
+        r = run(["git", "commit", "-m", "chore: 更新违规记录 [skip ci]"], 30)
+        if r.returncode != 0:
+            if "nothing to commit" not in (r.stdout + r.stderr):
+                log("状态提交失败：%s" % (r.stderr or r.stdout)[:160])
+            return
+        p = run(["git", "push"], 90)
+        if p.returncode == 0:
             log("状态已同步到仓库")
+        else:
+            log("状态推送失败：%s" % (p.stderr or p.stdout)[:160])
     except Exception as e:
-        log("状态同步失败：%s" % e)
+        log("状态同步异常：%s" % e)
 
 
 def load_state():
