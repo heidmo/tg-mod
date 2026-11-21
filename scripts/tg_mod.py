@@ -278,7 +278,17 @@ def pick_step(rec, level, rules, is_newbie=False):
 def apply_actions(cfg, rules, chat_id, msg, actions, uname, cat, level, dry):
     letters = {"A": "零容忍", "B": "严重", "C": "一般", "D": "轻微"}
     log_str = "「%s」%s级(%s)" % (cat, level, letters.get(level, ""))
-    for act in actions.split("+"):
+    # 顺序很重要：先警告（回复原消息），再删消息，否则回复目标就没了
+    def _rank(a):
+        if a == "warn":
+            return 0
+        if a == "delete":
+            return 1
+        if a.startswith("mute"):
+            return 2
+        return 3
+
+    for act in sorted(actions.split("+"), key=_rank):
         if act == "delete":
             if dry:
                 continue
@@ -291,13 +301,37 @@ def apply_actions(cfg, rules, chat_id, msg, actions, uname, cat, level, dry):
             if dry:
                 continue
             try:
+                import html as _html
+                uid2 = (msg.get("from") or {}).get("id")
+                name = _html.escape(str(uname))
+                mention = ('<a href="tg://user?id=%s">%s</a>' % (uid2, name)
+                           if uid2 else name)
+                # 告知下一次的后果，让人知道分寸
+                nxt = {
+                    "B": "再次违规将禁言 6 小时。",
+                    "C": "再次违规将禁言 1 小时。",
+                    "D": "多次刷屏将被禁言。",
+                }.get(level, "请遵守群规。")
+                # 用人话说明违规内容，不甩类别名
+                hint = {
+                    "返佣推广": "不要发推广和返佣",
+                    "广告链接": "不要发外部链接",
+                    "拉人私聊": "不要在群里拉人",
+                    "人身攻击": "请就事论事，不要人身攻击",
+                    "带单话术": "这里不带单、不跟单",
+                    "刷屏": "请勿刷屏",
+                }.get(cat, "请注意群规")
+                icon = "⚠️" if level == "B" else "💡"
+                head = "%s %s %s" % (icon, mention, hint)
                 api(cfg, "sendMessage", {
                     "chat_id": chat_id,
-                    "text": "⚠️ %s 触发群规 %s，消息已删。\n下次按尺度加重处理。"
-                            % (uname, log_str),
-                    "reply_to_message_id": msg["message_id"]})
-            except Exception:
-                pass
+                    "text": head + "\n消息已删除。" + nxt +
+                            "\n\n群规与判罚见置顶。",
+                    "parse_mode": "HTML",
+                    "reply_to_message_id": msg["message_id"],
+                    "allow_sending_without_reply": "true"})
+            except Exception as e:
+                log("    警告发送失败：%s" % e)
         elif act.startswith("mute"):
             mins = int(act[4:] or 60)
             if dry:
