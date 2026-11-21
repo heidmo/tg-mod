@@ -144,7 +144,7 @@ def api(cfg, method, payload=None, timeout=30):
     url = API % (cfg["bot_token"], method)
     data = urllib.parse.urlencode(payload or {}, doseq=True).encode()
     req = urllib.request.Request(url, data=data,
-                                 headers={"User-Agent": "jianshan-mod/1.0"})
+                                 headers={"User-Agent": "tg-mod/1.0"})
     p = cfg.get("proxy")
     op = urllib.request.build_opener(
         urllib.request.ProxyHandler({"http": p, "https": p}) if p
@@ -255,7 +255,7 @@ def apply_actions(cfg, rules, chat_id, msg, actions, uname, cat, level, dry):
                     "chat_id": chat_id, "user_id": msg["from"]["id"],
                     "permissions": json.dumps({"can_send_messages": False}),
                     "until_date": int(time.time()) + mins * 60})
-                log("    已禁言 %s %d 分钟" % (uname, mins))
+                log("    已禁言 用户%s %d 分钟" % (msg["from"]["id"], mins))
             except Exception as e:
                 log("    禁言失败：%s" % e)
         elif act == "ban":
@@ -264,7 +264,7 @@ def apply_actions(cfg, rules, chat_id, msg, actions, uname, cat, level, dry):
             try:
                 api(cfg, "banChatMember",
                     {"chat_id": chat_id, "user_id": msg["from"]["id"]})
-                log("    已踢出 %s" % uname)
+                log("    已踢出 用户%s" % msg["from"]["id"])
             except Exception as e:
                 log("    踢出失败：%s" % e)
     log("  %-8s %s → %s" % (uname, cat, actions))
@@ -295,14 +295,12 @@ def handle(cfg, rules, st, msg, dry=True):
     rec = user_record(st, rules, uid, is_new)
     rec["counts"][level] = rec["counts"].get(level, 0) + 1
     rec["last"] = dt.datetime.now().isoformat(timespec="seconds")
-    rec["name"] = uname
 
     step, n = pick_step(rec, level, rules, is_new)
 
     letters = {"A": "零容忍", "B": "严重", "C": "一般", "D": "轻微"}
-    log("[%s] %s（%s）触发「%s」%s级 ×%d → %s%s"
-        % (chat.get("title", "?"), uname, uid, cat,
-           letters.get(level, level), n, step,
+    log("[群] 用户%s 触发「%s」%s级 ×%d → %s%s"
+        % (uid, cat, letters.get(level, level), n, step,
            "  (试运行，不计入记录)" if dry else ""))
 
     # 试运行不累计违规次数
