@@ -1,0 +1,4 @@
+state/tg_config.json
+state/*.log
+__pycache__/
+*.pyc
