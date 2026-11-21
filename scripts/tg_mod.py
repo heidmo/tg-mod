@@ -128,6 +128,9 @@ def load_rules():
     r = dict(DEFAULT_RULES)
     r.update(load_json(RULES_FILE, {}))
     # 环境变量可覆盖豁免名单（避免把真实用户 ID 写进公开的规则文件）
+    env_bots = os.environ.get("TG_ALLOW_BOTS", "")
+    if env_bots.strip():
+        r["allow_bots"] = [int(x) for x in env_bots.split(",") if x.strip().isdigit()]
     env_admins = os.environ.get("TG_ADMIN_IDS", "")
     if env_admins.strip():
         ids = []
@@ -166,6 +169,17 @@ def log(msg):
 
 
 _LAST_SYNC = [0.0]
+_SELF_ID = [None]
+
+
+def self_id(cfg):
+    """本 bot 自己的 ID，用来避免踢自己。"""
+    if _SELF_ID[0] is None:
+        try:
+            _SELF_ID[0] = api(cfg, "getMe")["result"]["id"]
+        except Exception:
+            _SELF_ID[0] = 0
+    return _SELF_ID[0]
 
 
 def git_sync(force=False, every=600):
@@ -321,6 +335,37 @@ def handle(cfg, rules, st, msg, dry=True):
     # 进群/退群系统消息
     members = msg.get("new_chat_members") or msg.get("new_chat_participant")
     if members:
+        mlist = members if isinstance(members, list) else [members]
+        # 非白名单机器人：直接踢
+        allow = set(rules.get("allow_bots") or [])
+        me = self_id(cfg)
+        authorized = 0
+        for m in mlist:
+            m = m or {}
+            if not m.get("is_bot"):
+                continue
+            bid = m.get("id")
+            if bid == me or bid in allow:
+                authorized += 1
+                continue
+            log("发现未授权机器人 %s（id=%s），踢出" % (m.get("first_name", "?"), bid))
+            if not dry:
+                try:
+                    api(cfg, "banChatMember",
+                        {"chat_id": chat["id"], "user_id": bid})
+                except Exception as e:
+                    log("    踢出失败：%s" % e)
+                try:
+                    api(cfg, "deleteMessage",
+                        {"chat_id": chat["id"], "message_id": msg["message_id"]})
+                except Exception:
+                    pass
+            return True
+
+        # 全都是已授权的机器人 → 保留提示，不做处理
+        if authorized and authorized == len(mlist):
+            return False
+
         mode = rules.get("join_messages", "bots")
         if mode == "none":
             return False
