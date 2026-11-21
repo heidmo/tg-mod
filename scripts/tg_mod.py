@@ -318,6 +318,25 @@ def handle(cfg, rules, st, msg, dry=True):
     if not uid or uid in rules.get("admin_ids", []):
         return False
 
+    # 进群/退群系统消息
+    members = msg.get("new_chat_members") or msg.get("new_chat_participant")
+    if members:
+        mode = rules.get("join_messages", "bots")
+        if mode == "none":
+            return False
+        bots_only = all((m or {}).get("is_bot") for m in
+                        (members if isinstance(members, list) else [members]))
+        if mode == "all" or (mode == "bots" and bots_only):
+            log("清理进群提示（%s）" % ("机器人" if bots_only else "真人"))
+            if not dry:
+                try:
+                    api(cfg, "deleteMessage", {
+                        "chat_id": chat["id"], "message_id": msg["message_id"]})
+                except Exception as e:
+                    log("    删除失败：%s" % e)
+            return True
+        return False
+
     cat, level = classify(text, rules, cfg)
     if not cat:
         return False

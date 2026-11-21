@@ -3,19 +3,35 @@
   "levels": {
     "A": {
       "name": "零容忍",
-      "steps": ["delete+ban"]
+      "steps": [
+        "delete+ban"
+      ]
     },
     "B": {
       "name": "严重",
-      "steps": ["delete+warn", "delete+mute360", "delete+ban"]
+      "steps": [
+        "delete+warn",
+        "delete+mute360",
+        "delete+ban"
+      ]
     },
     "C": {
       "name": "一般",
-      "steps": ["delete+warn", "delete+mute60", "delete+mute1440", "delete+ban"]
+      "steps": [
+        "delete+warn",
+        "delete+mute60",
+        "delete+mute1440",
+        "delete+ban"
+      ]
     },
     "D": {
       "name": "轻微",
-      "steps": ["delete+warn", "delete+mute30", "delete+mute360", "delete+ban"]
+      "steps": [
+        "delete+warn",
+        "delete+mute30",
+        "delete+mute360",
+        "delete+ban"
+      ]
     }
   },
   "categories": {
@@ -31,5 +47,6 @@
   },
   "admin_ids": [],
   "exempt_newbie_days": 3,
-  "allow_links": []
+  "allow_links": [],
+  "join_messages": "bots"
 }
