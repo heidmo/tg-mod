@@ -1,0 +1,44 @@
+name: 群管理看门狗
+
+# 每 30 分钟检查一次：群管理任务还在跑吗？
+# 如果没有任何在跑或排队的任务，立刻补启动一个。
+# 这样即使某次任务崩溃，最多 30 分钟就能恢复，而不是等 3 小时。
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write      # 需要能触发其他工作流
+  contents: read
+
+concurrency:
+  group: tg-mod-watchdog
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 检查并补启动
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          RUNNING=$(gh run list --repo "$REPO" --workflow=mod.yml \
+                    --status=in_progress --limit 1 --json databaseId --jq 'length')
+          PENDING=$(gh run list --repo "$REPO" --workflow=mod.yml \
+                    --status=queued --limit 1 --json databaseId --jq 'length')
+
+          echo "在跑: $RUNNING  排队: $PENDING"
+
+          if [ "$RUNNING" = "0" ] && [ "$PENDING" = "0" ]; then
+            echo "⚠ 没有任务在跑，补启动一个"
+            gh workflow run mod.yml --repo "$REPO" --ref main
+            sleep 5
+            gh run list --repo "$REPO" --workflow=mod.yml --limit 1
+          else
+            echo "✓ 任务正常，无需干预"
+          fi
