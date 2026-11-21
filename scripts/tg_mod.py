@@ -165,6 +165,31 @@ def log(msg):
         f.write(line + "\n")
 
 
+_LAST_SYNC = [0.0]
+
+
+def git_sync(force=False, every=600):
+    """定期把状态提交回仓库。只在设置了 TG_GIT_SYNC=1 时生效。"""
+    if os.environ.get("TG_GIT_SYNC") != "1":
+        return
+    now = time.time()
+    if not force and now - _LAST_SYNC[0] < every:
+        return
+    _LAST_SYNC[0] = now
+    import subprocess
+    try:
+        subprocess.run(["git", "add", "state/tg_mod_state.json"],
+                       cwd=str(ROOT), capture_output=True, timeout=30)
+        r = subprocess.run(["git", "commit", "-m", "chore: 更新违规记录 [skip ci]"],
+                           cwd=str(ROOT), capture_output=True, timeout=30)
+        if r.returncode == 0:
+            subprocess.run(["git", "push"], cwd=str(ROOT),
+                           capture_output=True, timeout=60)
+            log("状态已同步到仓库")
+    except Exception as e:
+        log("状态同步失败：%s" % e)
+
+
 def load_state():
     st = load_json(STATE, {"offset": 0, "users": {}})
     st.setdefault("users", {})
@@ -176,6 +201,7 @@ def save_state(st):
     STATE.parent.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps(st, ensure_ascii=False, indent=2),
                      encoding="utf-8")
+    git_sync()
 
 
 # ---------- 判定 ----------
@@ -312,7 +338,7 @@ def handle(cfg, rules, st, msg, dry=True):
     return True
 
 
-def loop(cfg, rules, st, dry=False, once=False):
+def loop(cfg, rules, st, dry=False, once=False, deadline=None):
     if not cfg.get("bot_token"):
         log("没有 bot_token")
         return
@@ -320,6 +346,10 @@ def loop(cfg, rules, st, dry=False, once=False):
     log("开始%s（offset=%d，%s）"
         % ("处理一次" if once else "监听", last_id, "试运行" if dry else "实际执行"))
     while True:
+        if deadline and time.time() > deadline:
+            save_state(st)
+            log("运行时长到期，状态已保存，退出")
+            return
         try:
             res = api(cfg, "getUpdates", {
                 "offset": last_id + 1, "timeout": 0 if once else 25,
@@ -440,7 +470,21 @@ def cmd_once(args):
 
 def cmd_run(args):
     cfg, rules = load_cfg(), load_rules()
-    loop(cfg, rules, load_state(), dry=False, once=False)
+    mins = getattr(args, "minutes", 0) or 0
+    deadline = time.time() + mins * 60 if mins else None
+    if mins:
+        log("长轮询模式，运行 %d 分钟后自动退出" % mins)
+    # 收到终止信号时先把状态存盘
+    import signal
+    def _bye(signum, frame):
+        log("收到终止信号，保存状态")
+        sys.exit(0)
+    try:
+        signal.signal(signal.SIGTERM, _bye)
+        signal.signal(signal.SIGINT, _bye)
+    except Exception:
+        pass
+    loop(cfg, rules, load_state(), dry=False, once=False, deadline=deadline)
 
 
 def main():
@@ -454,6 +498,9 @@ def main():
             p.add_argument("--dry-run", action="store_true", help="只预览不发送")
         if name == "pin":
             p.add_argument("message_ids", nargs="+", help="要置顶的 message_id")
+        if name == "run":
+            p.add_argument("--minutes", type=int, default=0,
+                           help="运行多少分钟后自动退出（0=永不退出）")
         p.set_defaults(func=fn)
     args = ap.parse_args()
     if not hasattr(args, "dry_run"):

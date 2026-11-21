@@ -1,10 +1,16 @@
 name: 群管理
 
+# 长轮询模式：一次启动跑近 4 小时，期间实时监听
+# 公开仓库 Actions 额度无限，所以这样跑不花钱
+# 相比每 5 分钟轮询一次，延迟从 0–15 分钟降到 1–3 秒
+
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    # 每 4 小时启动一次，接续上一次
+    - cron: '0 */4 * * *'
   workflow_dispatch:
 
+# 不要取消正在跑的任务，否则会有空窗期
 concurrency:
   group: tg-mod
   cancel-in-progress: false
@@ -15,23 +21,28 @@ permissions:
 jobs:
   mod:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 上限 240 分钟，脚本跑到 230 分钟自己退出，留 10 分钟余量保存状态
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: 执行群管理
+      - name: 实时监听
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_GROUP_ID: ${{ vars.TG_GROUP_ID }}
-        run: python3 scripts/tg_mod.py once
+          TG_CHANNEL_ID: ${{ vars.TG_CHANNEL_ID }}
+          TG_ADMIN_IDS: ${{ vars.TG_ADMIN_IDS }}
+          TG_GIT_SYNC: "1"
+        run: python3 scripts/tg_mod.py run --minutes 230
 
       - name: 保存状态
+        if: always()
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add state/tg_mod_state.json state/tg_mod.log 2>/dev/null || true
+          git add state/tg_mod_state.json 2>/dev/null || true
           if git diff --staged --quiet; then
             echo "状态无变化"
           else
